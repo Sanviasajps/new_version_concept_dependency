@@ -4,61 +4,31 @@ from typing import Dict, List
 
 
 # =========================================================
-# 1. LOAD MAPPING (SYSTEM <-> CONTENT)
+# 1. LOAD MAPPING
 # =========================================================
 def load_mapping(tutor_db: str):
-    """
-    Loads concept_id_map from tutor.db
-
-    Purpose:
-    - Convert content IDs (P1, H1, etc.) → system IDs (1, 2, 3...)
-    - Also track which DB each concept belongs to
-
-    Returns:
-    - content_to_system: { "P1": "1" }
-    - system_to_content: { "1": "P1" }
-    - system_to_db: { "1": "python_learning.db" }
-    """
 
     conn = sqlite3.connect(tutor_db)
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT system_concept_id, content_concept_id, source_db
+        SELECT system_concept_id, content_concept_id
         FROM concept_id_map
     """)
 
     content_to_system = {}
-    system_to_content = {}
-    system_to_db = {}
 
-    for sys_id, content_id, db in cursor.fetchall():
-        sys_id = str(sys_id)
-        content_id = str(content_id)
-
-        content_to_system[content_id] = sys_id
-        system_to_content[sys_id] = content_id
-        system_to_db[sys_id] = db
+    for sys_id, content_id in cursor.fetchall():
+        content_to_system[str(content_id)] = str(sys_id)
 
     conn.close()
-    return content_to_system, system_to_content, system_to_db
+    return content_to_system
 
 
 # =========================================================
-# 2. LOAD GRAPH (CONVERT TO SYSTEM SPACE)
+# 2. LOAD GRAPH (SYSTEM SPACE)
 # =========================================================
 def load_graph(db_paths: List[str], content_to_system: Dict[str, str]):
-    """
-    Loads all concepts + dependencies from subject DBs
-    and converts them into system_concept_id space.
-
-    Example:
-    P2 depends on P1 → becomes → 2 depends on 1
-
-    Returns:
-    - concepts: set of system IDs
-    - reverse_adj: { concept: [prerequisites] }
-    """
 
     concepts = set()
     reverse_adj = defaultdict(list)
@@ -67,14 +37,13 @@ def load_graph(db_paths: List[str], content_to_system: Dict[str, str]):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # ---- Load concepts ----
+        # Concepts
         cursor.execute("SELECT concept_id FROM concepts")
-
         for (cid,) in cursor.fetchall():
             if cid in content_to_system:
                 concepts.add(content_to_system[cid])
 
-        # ---- Load dependencies ----
+        # Dependencies
         try:
             cursor.execute("""
                 SELECT concept_id, prerequisite_id
@@ -85,11 +54,9 @@ def load_graph(db_paths: List[str], content_to_system: Dict[str, str]):
                 if concept in content_to_system and prereq in content_to_system:
                     c_sys = content_to_system[concept]
                     p_sys = content_to_system[prereq]
-
                     reverse_adj[c_sys].append(p_sys)
 
-        except Exception:
-            # If table doesn't exist → ignore
+        except:
             pass
 
         conn.close()
@@ -98,18 +65,9 @@ def load_graph(db_paths: List[str], content_to_system: Dict[str, str]):
 
 
 # =========================================================
-# 3. LOAD MASTERY (FROM knowledge_state)
+# 3. LOAD MASTERY
 # =========================================================
 def load_mastery(tutor_db: str, learner_id: str, content_to_system: Dict[str, str]):
-    """
-    Loads learner mastery from knowledge_state table.
-
-    Converts:
-    content_id (P1) → system_id (1)
-
-    Returns:
-    { "1": 0.8, "2": 0.5 }
-    """
 
     conn = sqlite3.connect(tutor_db)
     cursor = conn.cursor()
@@ -130,36 +88,23 @@ def load_mastery(tutor_db: str, learner_id: str, content_to_system: Dict[str, st
 
     import json
     try:
-        data = json.loads(row[0])
-        mastery_raw = data.get("mastery", {})
+        data = json.loads(row[0])   # your format: { "P1": 0.8 }
     except:
         return {}
 
     mastery = {}
 
-    for cid, val in mastery_raw.items():
-        cid = str(cid)
-
+    for cid, val in data.items():
         if cid in content_to_system:
             mastery[content_to_system[cid]] = float(val)
 
     return mastery
 
+
 # =========================================================
-# 4. LOAD BEHAVIOUR (FROM behaviour_state)
+# 4. LOAD BEHAVIOUR
 # =========================================================
 def load_behavior(tutor_db: str, learner_id: str):
-    """
-    Loads learner behavior (like struggling, anomaly score).
-
-    Used to adjust difficulty later.
-
-    Returns:
-    {
-        "behavior_score": 0.78,
-        "label": "struggling"
-    }
-    """
 
     conn = sqlite3.connect(tutor_db)
     cursor = conn.cursor()
@@ -185,16 +130,9 @@ def load_behavior(tutor_db: str, learner_id: str):
 
 
 # =========================================================
-# 5. THRESHOLD CALCULATION
+# 5. THRESHOLD (ONLY MASTERY BASED)
 # =========================================================
 def get_threshold(mastery: Dict[str, float]):
-    """
-    Adaptive threshold based on average mastery.
-
-    Logic:
-    - Weak student → easier threshold
-    - Strong student → stricter threshold
-    """
 
     if not mastery:
         return 0.6
@@ -210,20 +148,9 @@ def get_threshold(mastery: Dict[str, float]):
 
 
 # =========================================================
-# 6. UNLOCK / BLOCK LOGIC
+# 6. UNLOCK / BLOCK (NO BEHAVIOUR HERE)
 # =========================================================
 def compute_unlocked_blocked(concepts, reverse_adj, mastery):
-    """
-    Core logic:
-
-    A concept is:
-    - UNLOCKED → if all prerequisites >= threshold
-    - BLOCKED → if any prerequisite < threshold
-
-    Returns:
-    - unlocked list
-    - blocked list with explanation
-    """
 
     threshold = get_threshold(mastery)
 
@@ -234,7 +161,6 @@ def compute_unlocked_blocked(concepts, reverse_adj, mastery):
 
         prereqs = reverse_adj.get(cid, [])
 
-        # No prereqs → always unlocked
         if not prereqs:
             unlocked.append(cid)
             continue
@@ -263,72 +189,114 @@ def compute_unlocked_blocked(concepts, reverse_adj, mastery):
 
 
 # =========================================================
-# 7. MAIN PIPELINE FUNCTION
+# 7. DIFFICULTY DECISION (BEHAVIOUR USED HERE)
+# =========================================================
+def decide_difficulty(mastery_value: float, behavior: Dict):
+
+    # Base difficulty from mastery
+    if mastery_value < 0.6:
+        difficulty = "easy"
+    elif mastery_value < 0.8:
+        difficulty = "medium"
+    else:
+        difficulty = "hard"
+
+    # Behaviour adjustment (IMPORTANT)
+    behavior_score = behavior.get("behavior_score", 0)
+
+    if behavior_score >= 0.7:
+        # reduce difficulty
+        if difficulty == "hard":
+            difficulty = "medium"
+        elif difficulty == "medium":
+            difficulty = "easy"
+
+    return difficulty
+
+
+# =========================================================
+# 8. MAIN PIPELINE
 # =========================================================
 def run_dependency_module(tutor_db, db_paths, learner_id):
-    """
-    FULL PIPELINE:
 
-    1. Load mapping
-    2. Build graph (system IDs)
-    3. Load mastery
-    4. Load behavior
-    5. Compute unlocked/blocked
+    content_to_system = load_mapping(tutor_db)
 
-    Returns:
-    - unlocked concepts
-    - blocked concepts
-    - threshold
-    - behavior info
-    """
-
-    # Step 1: mapping
-    content_to_system, _, _ = load_mapping(tutor_db)
-
-    # Step 2: graph
     concepts, reverse_adj = load_graph(db_paths, content_to_system)
 
-    # Step 3: mastery
     mastery = load_mastery(tutor_db, learner_id, content_to_system)
 
-    # Step 4: behavior
     behavior = load_behavior(tutor_db, learner_id)
 
-    # Step 5: compute
     unlocked, blocked, threshold = compute_unlocked_blocked(
         concepts, reverse_adj, mastery
     )
+
+    # Difficulty for unlocked concepts
+    difficulty_map = {}
+
+    # 🔥 NEW: strategy + content maps
+    strategy_map = {}
+    content_type_map = {}
+
+    for cid in unlocked:
+        mastery_value = mastery.get(cid, 0.0)
+
+        # existing
+        difficulty_map[cid] = decide_difficulty(mastery_value, behavior)
+
+        # 🔥 NEW: strategy_type
+        if mastery_value < 0.4:
+            strategy = "remedial"
+        elif mastery_value < 0.7:
+            strategy = "practice"
+        else:
+            strategy = "advance"
+
+        # behaviour override
+        if behavior.get("behavior_score", 0) >= 0.7:
+            strategy = "support"
+
+        strategy_map[cid] = strategy
+
+        # 🔥 NEW: content_type
+        if strategy in ["remedial", "support"]:
+            content_type = "worked_example"
+        elif strategy == "practice":
+            content_type = "guided_practice"
+        else:
+            content_type = "challenge_problem"
+
+        content_type_map[cid] = content_type
 
     return {
         "unlocked_concepts": unlocked,
         "blocked_concepts": blocked,
         "threshold": threshold,
-        "behavior": behavior
+        "behavior": behavior,
+        "difficulty_map": difficulty_map,
+        "strategy_map": strategy_map,            # ✅ NEW
+        "content_type_map": content_type_map     # ✅ NEW
     }
 
 
 # =========================================================
-# 8. TEST RUN
+# 9. TEST
 # =========================================================
 if __name__ == "__main__":
 
-    TUTOR_DB = "Updated_DB/tutor.db"
-
-    DB_PATHS = [
-        "Updated_DB/python_learning.db",
-        "Updated_DB/database_sql.db",
-        "Updated_DB/html_web_basics.db",
-        "Updated_DB/git_version_control.db",
-        "Updated_DB/data_structures.db",
-    ]
-
     result = run_dependency_module(
-        tutor_db=TUTOR_DB,
-        db_paths=DB_PATHS,
+        tutor_db="Updated_DB/tutor.db",
+        db_paths=[
+            "Updated_DB/python_learning.db",
+            "Updated_DB/database_sql.db",
+            "Updated_DB/html_web_basics.db",
+            "Updated_DB/git_version_control.db",
+            "Updated_DB/data_structures.db",
+        ],
         learner_id="14"
     )
 
     print("\nUnlocked:", result["unlocked_concepts"])
-    # print("\nBlocked:", result["blocked_concepts"])
-    # print("\nThreshold:", result["threshold"])
-    # print("\nBehavior:", result["behavior"])
+    print("\nBlocked:", result["blocked_concepts"])
+    print("\nDifficulty:", result["difficulty_map"])
+    print("\nBehavior:", result["behavior"])
