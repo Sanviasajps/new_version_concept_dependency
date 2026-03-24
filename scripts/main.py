@@ -108,7 +108,7 @@ for concept in result["unlocked_concepts"]:
         "strategy_type": strategy_type,
         "content_type": content_type
     }
-        
+      
     if json_mapping["status"] != "Failed":
         json_mapping["status"] = "Success"
 
