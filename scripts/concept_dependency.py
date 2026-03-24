@@ -329,6 +329,6 @@ if __name__ == "__main__":
     )
 
     print("\nUnlocked:", result["unlocked_concepts"])
-    print("\nBlocked:", result["blocked_concepts"])
-    print("\nThreshold:", result["threshold"])
-    print("\nBehavior:", result["behavior"])
+    # print("\nBlocked:", result["blocked_concepts"])
+    # print("\nThreshold:", result["threshold"])
+    # print("\nBehavior:", result["behavior"])

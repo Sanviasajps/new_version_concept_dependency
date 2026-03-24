@@ -13,19 +13,7 @@
 
 import sqlite3
 
-json_mapping = {
-    "system_concept_id" : "",
-    "content_concept_id" : "",
-    "domain":"",
-    "concept_name" : "",
-    "description" : "",
-    # "teaching_strategy" : "",
-    "difficulty" : "",
-    # "content_type" : "",
-    # "instruction" : "",
-    "source_db" : "",
-    "status": "" 
-}
+from concept_dependency import run_dependency_module
 
 # def get_db(content_concept_id):
 #     db = ''
@@ -101,15 +89,49 @@ def get_content_concept_id_and_domain_and_db(db_path,system_concept_id):
         print(f"Error fetcing content_concept_id {e}")
 
 
-json_mapping["system_concept_id"] = input("Enter the System Concept ID : ")
-get_content_concept_id_and_domain_and_db(f"Updated_DB/tutor.db",json_mapping["system_concept_id"])
+# json_mapping["system_concept_id"] = input("Enter the System Concept ID : ")
 
-get_concept_details(f"Updated_DB/{json_mapping['source_db']}", json_mapping['content_concept_id'])
+TUTOR_DB = "Updated_DB/tutor.db"
+
+DB_PATHS = [
+    "Updated_DB/python_learning.db",
+    "Updated_DB/database_sql.db",
+    "Updated_DB/html_web_basics.db",
+    "Updated_DB/git_version_control.db",
+    "Updated_DB/data_structures.db",
+]
+result = run_dependency_module(
+    tutor_db=TUTOR_DB,
+    db_paths=DB_PATHS,
+    learner_id="14"
+)
+
+print("\nUnlocked:", result["unlocked_concepts"])
+
+for concept in result["unlocked_concepts"]:
+    json_mapping = {
+        "system_concept_id" : "",
+        "content_concept_id" : "",
+        "domain":"",
+        "concept_name" : "",
+        "description" : "",
+        # "teaching_strategy" : "",
+        "difficulty" : "",
+        # "content_type" : "",
+        # "instruction" : "",
+        "source_db" : "",
+        "status": "" 
+    }
     
-if json_mapping["status"] != "Failed":
-    json_mapping["status"] = "Success"
+    json_mapping["system_concept_id"] = concept
+    get_content_concept_id_and_domain_and_db(f"Updated_DB/tutor.db",json_mapping["system_concept_id"])
 
-print("======================================")
-for key in json_mapping:
-    print(f"{key} : {json_mapping[key]}")
+    get_concept_details(f"Updated_DB/{json_mapping['source_db']}", json_mapping['content_concept_id'])
+        
+    if json_mapping["status"] != "Failed":
+        json_mapping["status"] = "Success"
+
+    print("======================================")
+    for key in json_mapping:
+        print(f"{key} : {json_mapping[key]}")
 
