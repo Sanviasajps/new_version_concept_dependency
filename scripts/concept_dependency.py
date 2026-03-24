@@ -250,11 +250,11 @@ def run_dependency_module(tutor_db, db_paths, learner_id):
         elif mastery_value < 0.7:
             strategy = "practice"
         else:
-            strategy = "advance"
+            strategy = "advanced"
 
         # behaviour override
-        if behavior.get("behavior_score", 0) >= 0.7:
-            strategy = "support"
+        # if behavior.get("behavior_score", 0) >= 0.7:
+        #     strategy = "support"
 
         strategy_map[cid] = strategy
 
